@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
     MPI_Init(&argc, &argv);
     MPI_Comm comm;
     MPI_Status status;
-    comm = MPI_COMM_WORLD;
+    comm = MPI_COMM_WORLD; // if we have 8 cores, our "world" is 8 cores
     MPI_Comm_size(comm, &nproc);
     MPI_Comm_rank(comm, &my_rank);
     // Get the name of the processor
@@ -31,55 +31,52 @@ int main(int argc, char *argv[]) {
     int len;
     MPI_Get_processor_name(proc_name, &len);
 
+    int items = N / nproc;
     if (my_rank == 0) { // Manager core
         /* 1. Define local amount of items each processor will work on */
-        int items = N / nproc;
         /* 2.1 Manager initializing array */
         for (int i = 0; i < N; i++) {
-            array[i] = i + 1;
+            array[i] = i + 2;
         }
         /* 2.2 Manager prints initial array*/
         printArray(array, N);
         /* 2.3 manager sends subarrays to each process */
-        for (int i = 1; i < nproc - 1; i++) {
-            MPI_Send(&items, // buffer
-                     1, // number of elements in buffer
+        for (int i = 1; i < nproc; i++) {
+            offset = items * i;
+            MPI_Send(&array[offset], // buffer
+                     items, // number of elements in buffer
                      MPI_INT, // data type
                      i, // destination
-                     0, // message tag
+                     22, // message tag
                      comm);
         }
         /* 2.4. manager works on its part */
         for (int i = 0; i < items; i++) {
-            // Not sure what should go here
+            array_new[i] = array[i] + 1;
         }
         /* 2.5. manager receives calculations from workers */
-        int recv;
-        for (int i = 1; i < nproc - 1; i++) {
-            MPI_Recv(&recv, 1, MPI_INT, MPI_ANY_SOURCE, 0, comm, &status);
-            printf("recv: %d\n", recv);
-            array_new[i] += recv;
+        for (int i = 1; i < nproc; i++) {
+            offset = items * i;
+            MPI_Recv(&array_new[offset], items, MPI_INT, i, 25, comm, &status);
         }
         /* 2.6. manager prints the processed array */
         printf("Final array = ");
         printArray(array_new, N);
+        printf("\n");
     } else { // not manager core
         /* 3.0 Workers receive offset, and its portion of the data */
-        int items = N / nproc;
-        int temp[items];
-        MPI_Recv(&items, 1, MPI_INT, 0, 0, comm, &status);
-        //MPI_Recv(&array_new, items, MPI_INT, 0, 0, comm, &status);
+        offset = my_rank * items;
+        MPI_Recv(&array[offset], items, MPI_INT, 0, 22, comm, &status);
         /* 3.1 Worker prints processor name, its rank and received array*/
-        printf("Name: %s Rank: %d", proc_name, my_rank);
-        printArray(temp, items);
+        printf("Name: %s Rank: %d ", proc_name, my_rank);
+        printArray(array, N);
+        printf("\n");
         /* 3.2. Worker works on array, doing some calculation on it */
-        for (int i = 0; i < items; i++) {
-            temp[i] += 1;
+        for (int i = offset; i < offset + items; i++) {
+            array_new[i] = array[i] + 1;
         }
         /* 3.3. Workers send their work back to manager */
-        for (int i = 0; i < items; i++) {
-            MPI_Send(&temp[i], 1, MPI_INT, 0, 0, comm);
-        }
+        MPI_Send(&array_new[offset], items, MPI_INT, 0, 25, comm);
     }
 
     MPI_Finalize();
